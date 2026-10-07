@@ -1,0 +1,58 @@
+name: Verify and publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft tag (vX.Y.Z or vX.Y.Z-beta.N)
+        required: true
+        type: string
+      publish:
+        description: Publish after verification (false only validates)
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flatt-release-publication
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      PUBLISH: ${{ inputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Validate requested draft
+        shell: bash
+        run: |
+          node --input-type=module -e 'import semver from "semver"; const tag = process.env.RELEASE_TAG; if (!tag?.startsWith("v") || semver.valid(tag.slice(1)) !== tag.slice(1)) throw new Error("Invalid release tag");'
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName > release.json
+          node --input-type=module -e 'import fs from "node:fs"; import semver from "semver"; const r = JSON.parse(fs.readFileSync("release.json")); if (!r.isDraft || r.tagName !== process.env.RELEASE_TAG || r.isPrerelease !== Boolean(semver.prerelease(r.tagName.slice(1)))) throw new Error("Expected matching draft and prerelease flag");'
+      - name: Download and verify all installers
+        shell: bash
+        run: |
+          gh release download "$RELEASE_TAG" --dir artifacts
+          node scripts/verify-release.mjs artifacts "${RELEASE_TAG#v}"
+      - name: Publish verified draft
+        if: inputs.publish
+        shell: bash
+        run: |
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest=true
+          fi
