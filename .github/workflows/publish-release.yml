@@ -46,11 +46,14 @@ jobs:
         shell: bash
         run: |
           gh release download "$RELEASE_TAG" --dir artifacts
-          node scripts/verify-release.mjs artifacts "${RELEASE_TAG#v}"
+          gh api "repos/$GH_REPO/releases" --paginate --slurp > current-releases.json
+          node scripts/verify-release.mjs artifacts "${RELEASE_TAG#v}" current-releases.json
       - name: Publish verified draft
         if: inputs.publish
         shell: bash
         run: |
+          gh api "repos/$GH_REPO/releases" --paginate --slurp > current-releases.json
+          node scripts/verify-release.mjs artifacts "${RELEASE_TAG#v}" current-releases.json
           if [[ "$RELEASE_TAG" == *-beta.* ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --latest=false
           else

@@ -2,6 +2,11 @@
   "name": "flatt-release-validation",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test test/releaseArtifacts.test.mjs test/verifyRelease.test.mjs" },
-  "dependencies": { "semver": "7.7.4", "yaml": "2.9.0" }
+  "scripts": {
+    "test": "node --test test/releaseArtifacts.test.mjs test/releaseInventory.test.mjs test/verifyRelease.test.mjs"
+  },
+  "dependencies": {
+    "semver": "7.7.4",
+    "yaml": "2.9.0"
+  }
 }
