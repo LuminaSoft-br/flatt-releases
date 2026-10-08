@@ -8,7 +8,12 @@ import { createTargetProvenance, releaseTargets } from "../scripts/aggregate-rel
 export const version = "1.2.3";
 export const sha = "a".repeat(40);
 
-export async function fixture(t, selected = releaseTargets, fixtureVersion = version) {
+export async function fixture(
+  t,
+  selected = releaseTargets,
+  fixtureVersion = version,
+  options = {},
+) {
   const version = fixtureVersion;
   const channel = version.includes("-beta.") ? "beta" : "latest";
   const root = await mkdtemp(join(tmpdir(), "flatt-inventory-"));
@@ -32,7 +37,10 @@ export async function fixture(t, selected = releaseTargets, fixtureVersion = ver
       await writeFile(join(dir, name), bytes);
       if (["exe", "zip", "dmg"].includes(extension))
         await writeFile(join(dir, `${name}.blockmap`), "blockmap fixture");
-      if (["exe", "zip", "AppImage"].includes(extension))
+      if (
+        ["exe", "zip", "AppImage"].includes(extension) ||
+        (extension === "dmg" && options.macDmgManifest)
+      )
         entries.push({
           url: name,
           size: bytes.length,

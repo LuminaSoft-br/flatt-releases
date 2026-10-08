@@ -69,7 +69,22 @@ export function targetFiles(target, version) {
     optional: os === "mac" ? [`${prefix}.dmg.blockmap`] : [],
     manifest,
     installer: `${prefix}.${os === "win" ? "exe" : os === "mac" ? "zip" : "AppImage"}`,
+    manifestCompanions: os === "mac" ? [`${prefix}.dmg`] : [],
   };
+}
+
+export function validateManifestTargetCoverage(manifest, targets, version) {
+  const specs = targets.map((target) => targetFiles(target, version));
+  const urls = manifest.files?.map((file) => file.url);
+  const allowed = new Set(specs.flatMap((spec) => [spec.installer, ...spec.manifestCompanions]));
+  // 实际 Electron Builder 26.8.1 同时写入 ZIP 与 DMG；必须验证全部引用，且不能让 DMG 替代升级所需的 ZIP。
+  if (
+    !Array.isArray(urls) ||
+    new Set(urls).size !== urls.length ||
+    specs.some((spec) => !urls.includes(spec.installer)) ||
+    urls.some((url) => !allowed.has(url))
+  )
+    throw new Error("Incomplete manifest target coverage");
 }
 
 export async function checkedFile(directory, name) {
@@ -172,12 +187,11 @@ export async function validateReleaseArtifacts(directory, version) {
       throw new Error(`Expected full installer manifest: ${name}`);
     }
     if (inventory) {
-      const expected = releaseTargets
-        .filter((t) => targetFiles(t, version).manifest === name)
-        .map((t) => targetFiles(t, version).installer)
-        .sort();
-      if (JSON.stringify(manifest.files.map((f) => f.url).sort()) !== JSON.stringify(expected))
-        throw new Error(`Incomplete manifest target coverage: ${name}`);
+      validateManifestTargetCoverage(
+        manifest,
+        releaseTargets.filter((t) => targetFiles(t, version).manifest === name),
+        version,
+      );
       if (
         manifest.path &&
         !manifest.files.some((f) => f.url === manifest.path && f.sha512 === manifest.sha512)
@@ -190,7 +204,7 @@ export async function validateReleaseArtifacts(directory, version) {
       if (
         typeof filename !== "string" ||
         basename(filename) !== filename ||
-        !/^flatt-[A-Za-z0-9_.-]+\.(exe|zip|AppImage|deb|rpm|pkg\.tar\.zst)$/.test(filename) ||
+        !/^flatt-[A-Za-z0-9_.-]+\.(exe|zip|dmg|AppImage|deb|rpm|pkg\.tar\.zst)$/.test(filename) ||
         !filename.includes(`-${version}-`) ||
         filename.includes("_TEST")
       ) {
