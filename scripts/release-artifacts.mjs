@@ -51,12 +51,17 @@ export function targetFiles(target, version) {
   if (!releaseTargets.includes(target)) throw new Error(`Unknown target: ${target}`);
   const [os, arch] = target === "windows-x64" ? ["win", "x64"] : target.split("-");
   const prefix = `flatt-${version}-${os}-${arch}`;
+  // 原生构建 37679956573 证明各 Linux 格式使用不同架构别名；保留生成文件名，不统一重命名。
+  const linuxSuffixes =
+    arch === "x64"
+      ? ["x86_64.AppImage", "amd64.deb", "x86_64.rpm", "x64.pkg.tar.zst"]
+      : ["arm64.AppImage", "arm64.deb", "aarch64.rpm", "aarch64.pkg.tar.zst"];
   const installers =
     os === "win"
       ? [`${prefix}.exe`, `${prefix}.exe.blockmap`]
       : os === "mac"
         ? [`${prefix}.zip`, `${prefix}.zip.blockmap`, `${prefix}.dmg`]
-        : ["AppImage", "deb", "rpm", "pkg.tar.zst"].map((ext) => `${prefix}.${ext}`);
+        : linuxSuffixes.map((suffix) => `flatt-${version}-linux-${suffix}`);
   const { channel } = releaseVersion(version);
   const manifest =
     os === "win"
@@ -68,8 +73,9 @@ export function targetFiles(target, version) {
     required: [...installers, manifest],
     optional: os === "mac" ? [`${prefix}.dmg.blockmap`] : [],
     manifest,
-    installer: `${prefix}.${os === "win" ? "exe" : os === "mac" ? "zip" : "AppImage"}`,
-    manifestCompanions: os === "mac" ? [`${prefix}.dmg`] : [],
+    installer: installers[0],
+    manifestCompanions:
+      os === "mac" ? [`${prefix}.dmg`] : os === "linux" ? installers.slice(1) : [],
   };
 }
 
@@ -77,7 +83,7 @@ export function validateManifestTargetCoverage(manifest, targets, version) {
   const specs = targets.map((target) => targetFiles(target, version));
   const urls = manifest.files?.map((file) => file.url);
   const allowed = new Set(specs.flatMap((spec) => [spec.installer, ...spec.manifestCompanions]));
-  // 实际 Electron Builder 26.8.1 同时写入 ZIP 与 DMG；必须验证全部引用，且不能让 DMG 替代升级所需的 ZIP。
+  // 原生 manifest 可列出 DMG 或 Linux 各格式；验证全部引用，并强制 ZIP/AppImage 主安装包覆盖。
   if (
     !Array.isArray(urls) ||
     new Set(urls).size !== urls.length ||
