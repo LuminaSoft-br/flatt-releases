@@ -1,0 +1,11 @@
+version: 0.0.1
+files:
+  - url: flatt-0.0.1-mac-arm64.zip
+    sha512: YOUUabrs+z6F4kJFLiP+/4OdigjfaRo5kUyWyqPtg2DyDrcJlHK+wl+GdH7ZbJyyTTl+agR0bAveDGSQnkYTMA==
+    size: 688367061
+  - url: flatt-0.0.1-mac-arm64.dmg
+    sha512: nYWTlWqjIo0TQkv2S2pwG1xPnQTe0e54GyI3n/wz0NfQT1a2wPZ152ZvVesTmxJ1ZHDwzpxSYsz0Qv1W9z/RzQ==
+    size: 712709883
+path: flatt-0.0.1-mac-arm64.zip
+sha512: YOUUabrs+z6F4kJFLiP+/4OdigjfaRo5kUyWyqPtg2DyDrcJlHK+wl+GdH7ZbJyyTTl+agR0bAveDGSQnkYTMA==
+releaseDate: '2026-10-08T23:24:33.263Z'

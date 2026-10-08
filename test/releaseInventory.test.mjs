@@ -9,9 +9,33 @@ import {
   createTargetProvenance,
   releaseTargets,
 } from "../scripts/aggregate-release.mjs";
-import { validateReleaseArtifacts } from "../scripts/release-artifacts.mjs";
+import {
+  validateManifestTargetCoverage,
+  validateReleaseArtifacts,
+} from "../scripts/release-artifacts.mjs";
 
-import { fixture, sha, version } from "./releaseFixture.mjs";
+import { fixture, nativeLinuxSuffixes, sha, version } from "./releaseFixture.mjs";
+
+for (const target of releaseTargets) {
+  test(`accepts original native ${target} manifest coverage`, async () => {
+    const manifest = parse(
+      await readFile(
+        join(import.meta.dirname, "fixtures/native-release-manifests", `${target}.yml`),
+        "utf8",
+      ),
+    );
+    assert.doesNotThrow(() => validateManifestTargetCoverage(manifest, [target], manifest.version));
+  });
+}
+
+test("AppImage-only Linux metadata retains all package formats in inventory", async (t) => {
+  const { input, output } = await fixture(t, releaseTargets, version, { linuxAppImageOnly: true });
+  const plan = await aggregateRelease(input, output, version, sha);
+  const manifest = parse(await readFile(join(output, "latest-linux.yml"), "utf8"));
+  assert.equal(manifest.files.length, 1);
+  for (const suffix of nativeLinuxSuffixes.x64)
+    assert.ok(plan.files.some((file) => file.name === `flatt-${version}-linux-${suffix}`));
+});
 
 test("aggregates five targets, both mac ZIPs and every Linux installer without external AppImage blockmaps", async (t) => {
   const { input, output } = await fixture(t);
@@ -22,8 +46,8 @@ test("aggregates five targets, both mac ZIPs and every Linux installer without e
   assert.equal(mac.files.length, 2);
   assert.equal(mac.path, mac.files[0].url);
   for (const arch of ["x64", "arm64"]) {
-    for (const extension of ["AppImage", "deb", "rpm", "pkg.tar.zst"])
-      assert.ok(plan.files.some((f) => f.name === `flatt-${version}-linux-${arch}.${extension}`));
+    for (const suffix of nativeLinuxSuffixes[arch])
+      assert.ok(plan.files.some((f) => f.name === `flatt-${version}-linux-${suffix}`));
   }
   assert.ok(plan.files.some((f) => f.name === "latest-linux-arm64.yml"));
   assert.ok(plan.files.some((f) => f.name === "release-inventory.json"));
@@ -88,21 +112,29 @@ for (const issue of [
   "extra",
   "missing-linux-format",
   "duplicate-target",
+  "wrong-linux-alias",
 ]) {
   test(`aggregation rejects ${issue} before publishing`, async (t) => {
     const { input, output } = await fixture(t);
     const dir = join(input, "linux-x64");
     const path = join(dir, "release-provenance.json");
     const provenance = JSON.parse(await readFile(path, "utf8"));
-    if (issue === "hash") await writeFile(join(dir, `flatt-${version}-linux-x64.deb`), "corrupt");
+    if (issue === "hash") await writeFile(join(dir, `flatt-${version}-linux-amd64.deb`), "corrupt");
     if (issue === "source") provenance.sourceSha = "b".repeat(40);
     if (issue === "traversal") provenance.files[0].name = "../private.ts";
     if (issue === "extra") await writeFile(join(dir, "private.ts"), "source");
     if (issue === "missing-linux-format")
       provenance.files = provenance.files.filter((f) => !f.name.endsWith(".rpm"));
     if (issue === "duplicate-target") provenance.target = "linux-arm64";
+    if (issue === "wrong-linux-alias")
+      provenance.files.find((file) =>
+        file.name.endsWith(".deb"),
+      ).name = `flatt-${version}-linux-x64.deb`;
     await writeFile(path, JSON.stringify(provenance));
-    await assert.rejects(aggregateRelease(input, output, version, sha));
+    await assert.rejects(
+      aggregateRelease(input, output, version, sha),
+      issue === "hash" ? /checksum/ : undefined,
+    );
   });
 }
 

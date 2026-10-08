@@ -1,0 +1,18 @@
+version: 0.0.1
+files:
+  - url: flatt-0.0.1-linux-arm64.AppImage
+    sha512: b/yN5J5KoOVMrw4Zy7wRSWmsQpLn0QpfmK/8sQKFUc1RBESzbfF46ks0OvKtR8cyTOTASqTjrKWvqFdlxa1gEA==
+    size: 729423699
+    blockMapSize: 760479
+  - url: flatt-0.0.1-linux-arm64.deb
+    sha512: ow7ckuGXEp1WNS6j7kTN3ztpZrjzHONoyekXSOxHVtcJPLEpIdlZJRtInzAmBTiVn07TmaWY0XGxFf7p5/VXNg==
+    size: 666440368
+  - url: flatt-0.0.1-linux-aarch64.rpm
+    sha512: RrJXqNk7ZW1+Kf/Nmf6dkfOAtYQ1HfpvHGmaK0Aq6CqGoTsoyheb4Othijv4OXPZfh0taKv+xImYlyOQ7wc0TQ==
+    size: 592053897
+  - url: flatt-0.0.1-linux-aarch64.pkg.tar.zst
+    sha512: eIEnrw4wbKGdp8UYuyulQOup6BsBpjVpkAIi7/R9/szhDzi1VMlzhJO+0hJ3qRnLxODIc+MFsSGoA4XOtXYIqw==
+    size: 606725960
+path: flatt-0.0.1-linux-arm64.AppImage
+sha512: b/yN5J5KoOVMrw4Zy7wRSWmsQpLn0QpfmK/8sQKFUc1RBESzbfF46ks0OvKtR8cyTOTASqTjrKWvqFdlxa1gEA==
+releaseDate: '2026-10-07T20:43:06.775Z'
