@@ -4,7 +4,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { parse, stringify } from "yaml";
-import { aggregateRelease, releaseTargets } from "../scripts/aggregate-release.mjs";
+import {
+  aggregateRelease,
+  createTargetProvenance,
+  releaseTargets,
+} from "../scripts/aggregate-release.mjs";
 import { validateReleaseArtifacts } from "../scripts/release-artifacts.mjs";
 
 import { fixture, sha, version } from "./releaseFixture.mjs";
@@ -30,6 +34,41 @@ test("missing target prevents aggregation", async (t) => {
   const { input, output } = await fixture(t, releaseTargets.slice(1));
   await assert.rejects(aggregateRelease(input, output, version, sha), /target/i);
 });
+
+test("preserves native macOS ZIP and DMG metadata for both architectures", async (t) => {
+  const { input, output } = await fixture(t, releaseTargets, version, { macDmgManifest: true });
+  const originals = [];
+  for (const target of ["mac-x64", "mac-arm64"])
+    originals.push(...parse(await readFile(join(input, target, "latest-mac.yml"), "utf8")).files);
+  await aggregateRelease(input, output, version, sha);
+  const mac = parse(await readFile(join(output, "latest-mac.yml"), "utf8"));
+  assert.deepEqual(mac.files, originals);
+  assert.equal(mac.files.length, 4);
+  await validateReleaseArtifacts(output, version);
+});
+
+for (const issue of ["dmg-checksum", "dmg-only", "duplicate-dmg", "foreign-architecture"]) {
+  test(`native macOS provenance rejects ${issue}`, async (t) => {
+    const { input } = await fixture(t, releaseTargets, version, { macDmgManifest: true });
+    const dir = join(input, "mac-arm64");
+    const path = join(dir, "latest-mac.yml");
+    const manifest = parse(await readFile(path, "utf8"));
+    if (issue === "dmg-checksum") manifest.files[1].sha512 = "corrupt";
+    if (issue === "dmg-only") manifest.files.shift();
+    if (issue === "duplicate-dmg") manifest.files.push(manifest.files[1]);
+    if (issue === "foreign-architecture") {
+      const foreign = `flatt-${version}-mac-x64.dmg`;
+      await writeFile(join(dir, foreign), "foreign installer");
+      manifest.files.push({
+        url: foreign,
+        size: 17,
+        sha512: createHash("sha512").update("foreign installer").digest("base64"),
+      });
+    }
+    await writeFile(path, stringify(manifest));
+    await assert.rejects(createTargetProvenance(dir, "mac-arm64", version, sha));
+  });
+}
 
 test("beta aggregation keeps beta manifests separate from stable", async (t) => {
   const beta = "1.2.3-beta.1";

@@ -8,6 +8,7 @@ import {
   releaseVersion,
   targetFiles,
   validateReleaseArtifacts,
+  validateManifestTargetCoverage,
   verifyFileList,
 } from "./release-artifacts.mjs";
 
@@ -21,10 +22,15 @@ function checkSource(sourceSha) {
 
 export async function createTargetProvenance(directory, target, version, sourceSha) {
   checkSource(sourceSha);
-  const { required, optional } = targetFiles(target, version);
+  const { required, optional, manifest } = targetFiles(target, version);
   const names = await readdir(directory);
   const selected = [...required, ...optional.filter((n) => names.includes(n))];
   await validateReleaseArtifacts(directory, version);
+  validateManifestTargetCoverage(
+    parse(await readFile(join(directory, manifest), "utf8")),
+    [target],
+    version,
+  );
   const files = await Promise.all(selected.map((n) => checkedFile(directory, n)));
   const provenance = {
     schemaVersion: 1,
@@ -67,8 +73,7 @@ export async function aggregateRelease(input, output, version, sourceSha) {
       throw new Error("Unexpected file in target artifact");
     await validateReleaseArtifacts(dir, version);
     const manifest = parse(await readFile(join(dir, spec.manifest), "utf8"));
-    if (manifest.files.length !== 1 || manifest.files[0].url !== spec.installer)
-      throw new Error("Manifest does not match target");
+    validateManifestTargetCoverage(manifest, [provenance.target], version);
     targets.set(provenance.target, { dir, provenance, files, manifest, spec });
   }
   // 两个 macOS build 的 manifest 同名，先逐个验签再合并，禁止平铺下载时覆盖 ARM64 或 x64。
