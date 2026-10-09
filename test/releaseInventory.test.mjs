@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { parse, stringify } from "yaml";
@@ -15,6 +15,18 @@ import {
 } from "../scripts/release-artifacts.mjs";
 
 import { fixture, nativeLinuxSuffixes, sha, version } from "./releaseFixture.mjs";
+
+test("explicit CI aggregation hard-links immutable payloads without duplicating storage", async (t) => {
+  const { input, output } = await fixture(t);
+  const source = join(input, "windows-x64", `flatt-${version}-win-x64.exe`);
+  await aggregateRelease(input, output, version, sha, { linkFiles: true });
+  const original = await lstat(source);
+  const staged = await lstat(join(output, `flatt-${version}-win-x64.exe`));
+  assert.equal(staged.ino, original.ino);
+  assert.equal(staged.dev, original.dev);
+  assert.ok(staged.nlink >= 2);
+  await validateReleaseArtifacts(output, version);
+});
 
 for (const target of releaseTargets) {
   test(`accepts original native ${target} manifest coverage`, async () => {

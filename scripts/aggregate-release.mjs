@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse, stringify } from "yaml";
@@ -43,7 +43,13 @@ export async function createTargetProvenance(directory, target, version, sourceS
   return provenance;
 }
 
-export async function aggregateRelease(input, output, version, sourceSha) {
+export async function aggregateRelease(
+  input,
+  output,
+  version,
+  sourceSha,
+  { linkFiles = false } = {},
+) {
   releaseVersion(version);
   checkSource(sourceSha);
   const directories = await readdir(input, { withFileTypes: true });
@@ -84,7 +90,9 @@ export async function aggregateRelease(input, output, version, sourceSha) {
     for (const file of entry.files.values()) {
       if (target.startsWith("mac-") && file.name === entry.spec.manifest) continue;
       if (copied.has(file.name)) throw new Error(`Duplicate aggregate filename: ${file.name}`);
-      await cp(file.path, join(output, file.name), { errorOnExist: true, force: false });
+      // CI staging 的安装包不可变；显式 hard-link 避免 ENOSPC，本地默认仍复制独立文件。
+      if (linkFiles) await link(file.path, join(output, file.name));
+      else await cp(file.path, join(output, file.name), { errorOnExist: true, force: false });
       copied.add(file.name);
     }
   }
@@ -106,11 +114,14 @@ export async function aggregateRelease(input, output, version, sourceSha) {
 }
 
 async function main() {
-  const [command, directory, arg, version, sourceSha] = process.argv.slice(2);
+  const [command, directory, arg, version, sourceSha, mode] = process.argv.slice(2);
+  if (mode && mode !== "--link-files") throw new Error("Invalid aggregation mode");
   if (command === "provenance" && sourceSha)
     await createTargetProvenance(resolve(directory), arg, version, sourceSha);
   else if (command === "aggregate" && sourceSha)
-    await aggregateRelease(resolve(directory), resolve(arg), version, sourceSha);
+    await aggregateRelease(resolve(directory), resolve(arg), version, sourceSha, {
+      linkFiles: mode === "--link-files",
+    });
   else
     throw new Error(
       "Usage: aggregate-release.mjs provenance <dir> <target> <version> <sha> | aggregate <input> <output> <version> <sha>",

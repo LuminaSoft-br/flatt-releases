@@ -1,5 +1,7 @@
 # Private build / public publication connection
 
+CI aggregation supports an explicit `--link-files` mode for immutable files on the same staging filesystem, avoiding duplicated installer storage. The default local operation remains a copy. All original and merged checksums/inventory gates still apply; hard links are regular files, not symlinks. Never edit an installer through either linked path.
+
 The private `flatt-app` workflow owns native builds and aggregation. This public repository owns published releases and verifies a prepared draft before optional publication. Only installers, update manifests, blockmaps, public notes and a hashed `release-inventory.json` are accepted; private source and credentials are never release assets.
 
 An inventory release must include Windows x64, Linux x64/ARM64 and macOS x64/ARM64 at one version/source SHA. Verify every listed byte/hash, exact target filenames, all Linux formats and manifests. macOS has one merged manifest referencing both ZIPs. Linux AppImages contain their differential blockmap internally and do not require an external `.blockmap`. Legacy Windows-only draft validation remains supported. Unexpected assets fail verification.
