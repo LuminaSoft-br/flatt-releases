@@ -1,2 +1,7 @@
 node_modules/
 artifacts/
+.private-source/
+release-staged/
+release-input/
+release-output/
+public-notes/

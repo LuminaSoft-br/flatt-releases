@@ -1,0 +1,191 @@
+name: Build desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Approved full commit SHA in private flatt-app
+        type: string
+        required: true
+      publish:
+        description: Publish after complete verification (false prepares a draft)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatt-release-publication
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.metadata.outputs.sha }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - name: Validate pinned input and source credential presence
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          FLATT_SOURCE_READ_TOKEN: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+        run: node scripts/desktop-build.mjs validate-input
+      - name: Read private source at approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: LuminaSoft-br/flatt-app
+          ref: ${{ inputs.source_sha }}
+          token: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+          path: .private-source
+          persist-credentials: false
+          show-progress: false
+      - name: Admit version and explicitly public notes
+        id: metadata
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/desktop-build.mjs preflight
+      - name: Keep public release notes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-notes-${{ steps.metadata.outputs.version }}
+          path: release-staged
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: windows-x64, runner: windows-2025 }
+          - { id: linux-x64, runner: ubuntu-24.04 }
+          - { id: linux-arm64, runner: ubuntu-24.04-arm }
+          - { id: mac-x64, runner: macos-15-intel }
+          - { id: mac-arm64, runner: macos-15 }
+    env:
+      SOURCE_SHA: ${{ needs.preflight.outputs.sha }}
+      RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+      TARGET: ${{ matrix.id }}
+      FLATT_ENV: production
+      FLATT_PREVIEW_IDENTITY: "0"
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+      FLATT_SKIP_REMOTE_ASSETS: "1"
+      FLATT_ENABLE_MAC_SIGN: "0"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      FLATT_DESKTOP_DIST_DIR: dist-ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.2
+          run_install: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Read private source at admitted SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: LuminaSoft-br/flatt-app
+          ref: ${{ needs.preflight.outputs.sha }}
+          token: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+          path: .private-source
+          persist-credentials: false
+          show-progress: false
+      - name: Linux packaging prerequisites
+        if: startsWith(matrix.id, 'linux-')
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools libx11-dev libxtst-dev libxkbfile-dev
+      - name: Download pinned Windows native runtime privately
+        if: matrix.id == 'windows-x64'
+        env:
+          FLATT_SOURCE_READ_TOKEN: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+        run: node scripts/desktop-build.mjs windows-runtime
+      - name: Install private workspace dependencies
+        run: node scripts/desktop-build.mjs install
+      - name: Prepare bundled runtime and Agent
+        run: node scripts/desktop-build.mjs runtime
+      - name: Compile application privately
+        run: node scripts/desktop-build.mjs compile
+      - name: Verify source types, lint and hotfix regression tests on Linux
+        if: matrix.id == 'linux-x64'
+        run: node scripts/desktop-build.mjs verify
+      - name: Linux Electron responsiveness regression
+        if: matrix.id == 'linux-x64'
+        run: node scripts/desktop-build.mjs linux-regression
+      - name: Package and audit native installers privately
+        run: node scripts/desktop-build.mjs package
+      - name: Validate and stage installer allowlist
+        run: node scripts/desktop-build.mjs stage
+      - name: Upload only validated installers and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flatt-${{ needs.preflight.outputs.version }}-${{ matrix.id }}
+          path: release-staged
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      actions: read
+    env:
+      RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+      SOURCE_SHA: ${{ needs.preflight.outputs.sha }}
+      PUBLISH: ${{ inputs.publish }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: flatt-${{ needs.preflight.outputs.version }}-*
+          path: release-input
+          merge-multiple: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: public-notes-${{ needs.preflight.outputs.version }}
+          path: public-notes
+      - name: Verify complete five-target inventory and merge manifests
+        run: node scripts/aggregate-release.mjs aggregate release-input release-output "$RELEASE_VERSION" "$SOURCE_SHA" --link-files
+      - name: Upload draft and redownload every asset for verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--dir release-output --version "$RELEASE_VERSION" --notes public-notes/release-notes.md --require-inventory)
+          if [[ "$PUBLISH" == "true" ]]; then args+=(--publish); fi
+          node scripts/publish-release.mjs "${args[@]}"
+      - name: Record prepared release
+        if: success()
+        shell: bash
+        run: |
+          printf 'Version: `%s`\n\nSource SHA: `%s`\n\nFive native targets verified.\n\nPublication requested: %s\n\n[Release](https://github.com/LuminaSoft-br/flatt-releases/releases/tag/v%s)\n' "$RELEASE_VERSION" "$SOURCE_SHA" "$PUBLISH" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

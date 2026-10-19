@@ -4,22 +4,24 @@ Este documento descreve a manutenção do canal público de instaladores. Para c
 
 ## Fluxo de publicação
 
-O workflow manual **Release desktop** em `LuminaSoft-br/flatt-app` compila os cinco alvos nativos, valida e reúne os arquivos, cria um draft, verifica os bytes enviados e publica quando `publish=true`. Ele requer o secret `FLATT_RELEASES_TOKEN` no privado, restrito a este repositório com Contents read/write. `publish=false` prepara um draft para revisão. A instalação consulta as releases públicas sem credencial.
+O workflow manual **Build desktop release** neste repositório público compila os cinco alvos em runners padrão do GitHub. O código permanece no repositório privado `LuminaSoft-br/flatt-app`; o workflow recebe o SHA completo de um commit aprovado, lê sua versão e compila todos os destinos a partir desse mesmo commit. `publish=false` prepara um draft verificado para revisão. A instalação consulta as releases públicas sem credencial.
+
+Configure o secret de repositório `FLATT_SOURCE_READ_TOKEN` em **Settings → Secrets and variables → Actions** deste repositório. Use um token fine-grained com expiração curta, restrito a `flatt-app` e permissão **Contents: Read-only**. Ele permite o checkout e o download do runtime Windows já fixado por hash. Não é necessário dar escrita no fonte; este pipeline não cria tags privadas.
 
 Releases completas incluem `release-inventory.json` com versão, SHA de origem, cinco alvos e hashes. O verificador exige Windows x64, Linux x64/ARM64 (AppImage, DEB, RPM e Arch) e macOS x64/ARM64 (ZIP e DMG), com os manifests de atualização. Os dois ZIPs macOS compartilham um manifest mesclado; Linux preserva os manifests por arquitetura. AppImage não exige um blockmap externo. Drafts antigos de Windows continuam compatíveis com o verificador.
 
 macOS é compilado sem assinatura/notarização no fluxo atual; as notas públicas informam essa limitação e a ausência de validação de atualizações automáticas nesses builds.
 
-O app é compilado no repositório privado. Este repositório recebe somente os instaladores, blockmaps, manifests de atualização, notas de versão e materiais de apresentação do produto.
+Os checkouts privados são temporários e não persistem a credencial. A saída dos comandos de instalação, preparação, compilação e empacotamento é descartada, inclusive quando falham: o log público mostra somente o estágio e seu resultado. Isso evita publicar trechos de fonte em erros de compilação. Não são enviados caches de dependências, checkouts, logs brutos ou arquivos de fonte. Somente uma pasta nova com o allowlist validado de instaladores, blockmaps, manifests e proveniência é enviada como artifact.
 
-1. Compile com a identidade de produção do Flatt e uma versão semântica. Para testes use `X.Y.Z-beta.N`.
-2. No repositório do app, execute `pnpm release:desktop --dir <artefatos> --version <versão> --notes <arquivo>`. O comando valida os arquivos, cria um draft e verifica o upload baixando os arquivos novamente.
-3. Abra **Actions → Verify and publish release**, informe a tag do draft (por exemplo `v0.0.1-beta.1`) e execute com `publish=false` para verificar.
-4. Depois da validação dos instaladores, execute novamente com `publish=true`. O workflow recusa releases já publicadas e versões inconsistentes.
+1. No fonte privado, prepare uma nova versão semântica no `package.json` raiz e suas notas explicitamente públicas em `docs/release-notes-<versão>.md`. Para testes use `X.Y.Z-beta.N`. Faça commit e push da revisão aprovada.
+2. Neste repositório, abra **Actions → Build desktop release**, selecione `master`, informe o SHA completo do fonte e mantenha `publish=false`.
+3. O workflow compila Windows x64, Linux x64/ARM64 e macOS Intel/ARM64, valida cada destino, reúne o inventário completo, cria um draft e verifica cada arquivo baixando-o novamente. Falha ou ausência de qualquer destino impede a publicação. Em falha, o nome do estágio no Actions identifica a operação a reproduzir privadamente; a saída privada não é recuperável pelo log público.
+4. Depois de validar os instaladores, abra **Verify and publish release**, informe a tag do draft e execute com `publish=true`. Não é necessário recompilar para publicar. O workflow recusa releases já publicadas e versões inconsistentes. Para uma execução já autorizada a publicar diretamente, `Build desktop release` também aceita `publish=true`.
 
 Releases beta ficam marcadas como prerelease e não substituem a versão estável em latest. Usuários habilitam atualizações de prévia no Flatt para recebê-las. O produto separado “flatt preview” não utiliza esse fluxo.
 
-O verificador deste repositório usa sua credencial temporária do GitHub Actions. A publicação vinda do privado usa o secret restrito `FLATT_RELEASES_TOKEN`. O aplicativo instalado consulta as releases públicas sem login e sem token.
+O verificador e a preparação/publicação neste repositório usam a credencial temporária do GitHub Actions, com escrita somente no job de publicação. O fluxo anterior no privado permanece disponível e requer `FLATT_RELEASES_TOKEN`, mas consome a cota de build daquele repositório. O aplicativo instalado consulta as releases públicas sem login e sem token. A política e os testes do novo fluxo estão em [Public native desktop builds](spec/public-native-builds.md).
 
 ## Validação local
 
