@@ -41,7 +41,7 @@ export async function addFixtureDiagnostics(output) {
     join(output, "main.cjs"),
     `const { app } = require("electron");
 app.on("web-contents-created", (_event, contents) => {
-  contents.on("console-message", (_event, details) => console.error("[renderer-console]", details));
+  contents.on("console-message", (details) => console.error("[renderer-console]", details.level, details.message));
   contents.on("did-fail-load", (_event, code, description) => console.error("[renderer-load-failed]", code, description));
   contents.on("render-process-gone", (_event, details) => console.error("[renderer-gone]", details));
 });
@@ -190,6 +190,7 @@ async function main() {
         "apps/flatt-cli/packages/core/test/modelRequestRetention.test.ts",
         "apps/flatt-cli/packages/bootstrap/test/modelRequestReplay.test.ts",
         "packages/desktop/test/asyncLogWriter.test.ts",
+        "packages/desktop/test/focusWindow.test.mjs",
         "packages/shared/test/memoryDiagnosticsLimits.test.ts",
         "packages/ui/test/highlightScheduler.test.ts",
         "packages/ui/test/rendererMemoryDiagnostics.test.ts",
@@ -211,7 +212,7 @@ async function main() {
       "linux-electron-regression",
       process.execPath,
       [harness, "run", output, resolveElectronExecutable(source)],
-      { cwd: source },
+      { cwd: source, extraEnv: { FLATT_E2E_FORCE_BLUR: "1" } },
     );
     return;
   }
