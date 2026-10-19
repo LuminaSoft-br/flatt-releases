@@ -80,12 +80,14 @@ Only immutable source input, read-only credentials and encrypted failure artifac
 are allowed. This probe does not replace native installed-upgrade validation.
 
 The release gate runs the graphical fixture under Xvfb with Openbox and explicit
-X11. A desktop window manager is part of this native-input test environment:
-bare Xvfb can report focused/visible contents yet lose the initial click, even
-after ready-to-show. The diagnostic matrix retains bare Xvfb as a comparison;
-it is not the release gate. Both paths keep the private source, workload,
-forced-blur assertion, deadline and heartbeat thresholds unchanged. Linux native
-prerequisites install Openbox and x11-utils before the launcher is invoked.
+X11 as its desktop test environment. The diagnostic matrix retains bare Xvfb as
+a comparison. Subsequent encrypted geometry/DOM traces established that the
+apparent lost click was delivered at coordinates cached from the hidden layout,
+outside the visible button; a window manager alone does not fix that race. The
+private fixture must calculate the current target after showing, focusing and
+crossing its renderer frame barrier. Both environments keep the private source,
+workload, forced-blur assertion, deadline and heartbeat thresholds unchanged.
+Linux native prerequisites install Openbox and x11-utils before the launcher.
 
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.
 - Subprocess tests inject secrets, source text and workflow commands into both streams and exceptions; none reaches the public log on success or failure. High-volume output is drained without accumulating it.
