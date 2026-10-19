@@ -43,6 +43,27 @@ sequenceDiagram
 
 The workflow uses the same publication concurrency group as the existing public verifier. A partial or failed build cannot publish. A publication retry uses the successful artifacts from the same run; the publisher resumes only a matching draft inventory. Re-running a native build requires fresh staging on its runner. Published versions are immutable.
 
+## OTA validation and replacing an unpublished candidate
+
+Windows builds must validate an installed upgrade from a real, OTA-enabled
+validation installer (`0.0.2-beta.0`) to the final installer (`0.0.2`). This
+predecessor is built from the same source and is never published. The private
+harness uses isolated paths and intercepts the updater network session through
+the Main inspector, preserving the unmodified installed executables and public
+GitHub provider. It must assert interrupted download/retry, ready, explicit
+installation, restart, final version and retained settings/data. Detailed output
+uses encrypted failure capture; public evidence contains only fixed result fields.
+
+An explicit `replace_draft_source_sha` input can authorize replacement of one
+unpublished candidate by its recorded old inventory source SHA. Preflight rejects
+published releases and replacements without the exact immutable source input.
+The old draft stays intact while the native matrix and installed upgrade gate
+run. Only after every gate succeeds may the publisher verify the old inventory
+source, recheck draft state, remove that draft and upload/verify the new complete
+inventory. Normal matching-draft resume and published-version immutability remain
+unchanged. Failures never publish. The published 0.0.1 client remains a manual
+migration because its updater was disabled.
+
 ## Acceptance
 
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.

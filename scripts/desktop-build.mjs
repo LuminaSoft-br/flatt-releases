@@ -23,11 +23,19 @@ import {
   verifyFileList,
 } from "./release-artifacts.mjs";
 import { runPrivateCommand } from "./private-command.mjs";
+import { runInstalledOtaValidation } from "./installed-ota.mjs";
 
 export function validateSourceSha(value) {
   if (typeof value !== "string" || value.length !== 40 || !/^[a-f0-9]{40}$/.test(value))
     throw new Error("Expected immutable full source SHA");
   return value;
+}
+
+export function assertDraftRebuildAdmission(existing, release, replaceSourceSha) {
+  if (replaceSourceSha) validateSourceSha(replaceSourceSha);
+  const prior = existing.find((item) => item.tag_name === release.tag);
+  if (prior && (!prior.draft || !replaceSourceSha || replaceSourceSha === release.sourceSha))
+    throw new Error("Release tag exists; draft replacement requires its old immutable source SHA");
 }
 
 export function resolveElectronExecutable(source) {
@@ -105,8 +113,7 @@ async function prepareMetadata(source, sourceSha) {
   );
   if (!response.ok) throw new Error("Cannot check existing public releases");
   const existing = await response.json();
-  if (existing.some((item) => item.tag_name === release.tag))
-    throw new Error("Release tag already exists");
+  assertDraftRebuildAdmission(existing, release, process.env.REPLACE_DRAFT_SOURCE_SHA);
   assertReleaseIsNewer(existing, release.version);
   const staged = resolve("release-staged");
   await mkdir(staged, { recursive: false });
@@ -162,6 +169,8 @@ async function main() {
   const stage = process.argv[2];
   const sourceSha = validateSourceSha(process.env.SOURCE_SHA);
   if (stage === "validate-input") {
+    if (process.env.REPLACE_DRAFT_SOURCE_SHA)
+      validateSourceSha(process.env.REPLACE_DRAFT_SOURCE_SHA);
     if (!process.env.FLATT_SOURCE_READ_TOKEN)
       throw new Error("Missing read-only source credential");
     return;
@@ -173,6 +182,11 @@ async function main() {
   const version = process.env.RELEASE_VERSION;
   await readSourceRelease(source, sourceSha, version);
   if (stage === "windows-runtime") return windowsRuntime(source);
+  if (stage === "installed-ota") {
+    if (process.platform !== "win32" || target !== "windows-x64")
+      throw new Error("Installed OTA validation requires Windows x64");
+    return runInstalledOtaValidation(source, version);
+  }
   if (stage === "verify") {
     for (const command of ["typecheck", "lint"])
       await runPrivateCommand(command, "pnpm", [command], { cwd: source });
@@ -191,6 +205,10 @@ async function main() {
         "apps/flatt-cli/packages/bootstrap/test/modelRequestReplay.test.ts",
         "packages/desktop/test/asyncLogWriter.test.ts",
         "packages/desktop/test/focusWindow.test.mjs",
+        "packages/desktop/test/autoUpdaterEnablement.test.mjs",
+        "packages/desktop/test/installedOtaNetwork.test.mjs",
+        "packages/desktop/test/githubReleaseProvider.test.ts",
+        "packages/desktop/test/forceUpdateGuard.test.ts",
         "packages/shared/test/memoryDiagnosticsLimits.test.ts",
         "packages/ui/test/highlightScheduler.test.ts",
         "packages/ui/test/rendererMemoryDiagnostics.test.ts",
