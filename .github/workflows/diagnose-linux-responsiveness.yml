@@ -1,0 +1,69 @@
+name: Diagnose Linux responsiveness
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Immutable private source SHA to diagnose
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        window_manager: [none, openbox]
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      TARGET: linux-x64
+      FLATT_ENV: production
+      FLATT_PREVIEW_IDENTITY: "0"
+      FLATT_ENCRYPTED_DIAGNOSTICS: "1"
+      FLATT_E2E_WINDOW_MANAGER: ${{ matrix.window_manager }}
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.2
+          run_install: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate immutable source input
+        env:
+          FLATT_SOURCE_READ_TOKEN: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+        run: node scripts/desktop-build.mjs validate-input
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: LuminaSoft-br/flatt-app
+          ref: ${{ inputs.source_sha }}
+          token: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
+          path: .private-source
+          persist-credentials: false
+          show-progress: false
+      - name: Linux graphical prerequisites
+        run: sudo apt-get update && sudo apt-get install -y openbox x11-utils libx11-dev libxtst-dev libxkbfile-dev
+      - name: Install workspace privately
+        run: node scripts/desktop-build.mjs install
+      - name: Run unchanged graphical assertions privately
+        run: node scripts/desktop-build.mjs linux-regression
+      - name: Keep encrypted failure diagnosis
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: encrypted-linux-probe-${{ matrix.window_manager }}
+          path: ${{ runner.temp }}/flatt-private-build-logs/*.enc.json
+          retention-days: 7
+          if-no-files-found: ignore

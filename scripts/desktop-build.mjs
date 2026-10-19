@@ -43,6 +43,33 @@ export function resolveElectronExecutable(source) {
   return createRequire(join(source, "packages/desktop/package.json"))("electron");
 }
 
+export async function createLinuxElectronLauncher(executable, output, manager = "none") {
+  if (manager === "none") return executable;
+  if (manager !== "openbox") throw new Error("Unsupported Linux fixture window manager");
+  const quoted = "'" + executable.replaceAll("'", "'\"'\"'") + "'";
+  const path = join(output, "electron-with-window-manager.sh");
+  await writeFile(
+    path,
+    `#!/bin/sh
+set -eu
+openbox --sm-disable >/dev/null 2>&1 &
+wm_pid=$!
+trap 'kill "$wm_pid" 2>/dev/null || true' EXIT
+ready=0
+for attempt in $(seq 1 100); do
+  kill -0 "$wm_pid" || exit 1
+  if xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id'; then ready=1; break; fi
+  sleep 0.05
+done
+[ "$ready" = 1 ] || exit 1
+if ${quoted} --ozone-platform=x11 "$@"; then result=0; else result=$?; fi
+exit "$result"
+`,
+    { mode: 0o700 },
+  );
+  return path;
+}
+
 export async function addFixtureDiagnostics(output) {
   await rename(join(output, "main.cjs"), join(output, "main.fixture.cjs"));
   await writeFile(
@@ -52,6 +79,17 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("console-message", (details) => console.error("[renderer-console]", details.level, details.message));
   contents.on("did-fail-load", (_event, code, description) => console.error("[renderer-load-failed]", code, description));
   contents.on("render-process-gone", (_event, details) => console.error("[renderer-gone]", details));
+  contents.on("ipc-message", (_event, channel) => console.error("[fixture-ipc]", channel));
+});
+app.on("browser-window-created", (_event, window) => {
+  const state = () => JSON.stringify(window.isDestroyed()||window.webContents.isDestroyed()?{destroyed:true}:{windowFocused:window.isFocused(),contentFocused:window.webContents.isFocused(),visible:window.isVisible()});
+  for(const event of ["focus","blur","show","ready-to-show"]) window.on(event,()=>console.error("[fixture-window]",event,state()));
+  for(const method of ["focus","blur"]) {
+    const original=window[method].bind(window);
+    window[method]=(...args)=>{console.error("[fixture-window-request]",method,state());return original(...args);};
+  }
+  const input=window.webContents.sendInputEvent.bind(window.webContents);
+  window.webContents.sendInputEvent=(event)=>{console.error("[fixture-native-input]",event.type,event.x,event.y,state());return input(event);};
 });
 require("./main.fixture.cjs");
 `,
@@ -226,10 +264,15 @@ async function main() {
       cwd: source,
     });
     await addFixtureDiagnostics(output);
+    const executable = await createLinuxElectronLauncher(
+      resolveElectronExecutable(source),
+      output,
+      process.env.FLATT_E2E_WINDOW_MANAGER || "none",
+    );
     await runPrivateCommand(
       "linux-electron-regression",
       process.execPath,
-      [harness, "run", output, resolveElectronExecutable(source)],
+      [harness, "run", output, executable],
       { cwd: source, extraEnv: { FLATT_E2E_FORCE_BLUR: "1" } },
     );
     return;

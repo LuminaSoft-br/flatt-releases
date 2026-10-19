@@ -66,6 +66,19 @@ migration because its updater was disabled.
 
 ## Acceptance
 
+### Isolated Linux probe
+
+The manual `Diagnose Linux responsiveness` workflow reads the same pinned private
+source and runs only dependency preparation and the unchanged graphical harness,
+without compiling installers or mutating releases. Two fresh Linux jobs compare
+bare Xvfb and Xvfb with Openbox. The optional launcher waits for the actual X11
+window-manager ownership property before launching Electron; no harness deadline,
+workload or responsiveness threshold changes. Focus/blur/input and fixture IPC
+stage traces are captured only in the existing encrypted failure channel.
+
+Only immutable source input, read-only credentials and encrypted failure artifacts
+are allowed. This probe does not replace native installed-upgrade validation.
+
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.
 - Subprocess tests inject secrets, source text and workflow commands into both streams and exceptions; none reaches the public log on success or failure. High-volume output is drained without accumulating it.
 - Encrypted diagnostics tests cover authenticated roundtrip, tamper/wrong-recipient rejection, bounded tail capture and absence of plaintext in the uploaded envelope. The private key must never be committed, uploaded or printed.
