@@ -45,13 +45,14 @@ test("failed child output is encrypted on disk and never printed", async (t) => 
   const directory = await mkdtemp(join(tmpdir(), "flatt-encrypted-diagnostic-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const reports = [];
+  // Linux 管道写入是异步的；立即 process.exit 会截断测试数据，exitCode 允许先排空再退出。
   await assert.rejects(
     runPrivateCommand(
       "compile",
       process.execPath,
       [
         "-e",
-        "process.stderr.write('x'.repeat(3*1024*1024)); process.stderr.write('private source and fixture secret'); process.exit(1)",
+        "process.stderr.write('x'.repeat(3*1024*1024)); process.stderr.write('private source and fixture secret'); process.exitCode = 1",
       ],
       {
         report: (line) => reports.push(line),
