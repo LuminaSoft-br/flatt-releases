@@ -40,3 +40,16 @@ test("Linux probe is manual, source-pinned, read-only and retains encrypted diag
     }
   }
 });
+
+test("release graphical gate uses an installed X11 window manager before native input", async () => {
+  const w = parse(
+    await readFile(new URL("../.github/workflows/build-desktop.yml", import.meta.url), "utf8"),
+  );
+  const steps = w.jobs.build.steps;
+  const graphical = steps.find((s) => s.run === "node scripts/desktop-build.mjs linux-regression");
+  assert.equal(graphical.env?.FLATT_E2E_WINDOW_MANAGER, "openbox");
+  const prerequisites = steps.find((s) => s.run?.includes("apt-get install"));
+  assert.match(prerequisites.run, /\bopenbox\b/);
+  assert.match(prerequisites.run, /\bx11-utils\b/);
+  assert.ok(steps.indexOf(prerequisites) < steps.indexOf(graphical));
+});

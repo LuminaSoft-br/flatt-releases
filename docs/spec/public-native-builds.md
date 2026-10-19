@@ -79,6 +79,14 @@ stage traces are captured only in the existing encrypted failure channel.
 Only immutable source input, read-only credentials and encrypted failure artifacts
 are allowed. This probe does not replace native installed-upgrade validation.
 
+The release gate runs the graphical fixture under Xvfb with Openbox and explicit
+X11. A desktop window manager is part of this native-input test environment:
+bare Xvfb can report focused/visible contents yet lose the initial click, even
+after ready-to-show. The diagnostic matrix retains bare Xvfb as a comparison;
+it is not the release gate. Both paths keep the private source, workload,
+forced-blur assertion, deadline and heartbeat thresholds unchanged. Linux native
+prerequisites install Openbox and x11-utils before the launcher is invoked.
+
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.
 - Subprocess tests inject secrets, source text and workflow commands into both streams and exceptions; none reaches the public log on success or failure. High-volume output is drained without accumulating it.
 - Encrypted diagnostics tests cover authenticated roundtrip, tamper/wrong-recipient rejection, bounded tail capture and absence of plaintext in the uploaded envelope. The private key must never be committed, uploaded or printed.
