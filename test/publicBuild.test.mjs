@@ -153,8 +153,13 @@ test("public workflow uses five native runners, isolated credentials and staged 
       }
       assert.ok(!step.uses?.startsWith("actions/cache@"));
       assert.equal(step.with?.cache, undefined);
-      if (step.uses?.startsWith("actions/upload-artifact@"))
-        assert.equal(step.with.path, "release-staged");
+      if (step.uses?.startsWith("actions/upload-artifact@")) {
+        if (step.with.path !== "release-staged") {
+          assert.equal(step.if, "failure()");
+          assert.match(step.with.name, /^encrypted-diagnostics-/);
+          assert.equal(step.with.path, "${{ runner.temp }}/flatt-private-build-logs/*.enc.json");
+        }
+      }
       if (step.run) assert.doesNotMatch(step.run, /pnpm |set -x|printenv|--clobber/);
     }
   }

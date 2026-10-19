@@ -90,6 +90,7 @@ jobs:
       FLATT_ENABLE_MAC_SIGN: "0"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       FLATT_DESKTOP_DIST_DIR: dist-ci
+      FLATT_ENCRYPTED_DIAGNOSTICS: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -144,6 +145,15 @@ jobs:
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
+
+      - name: Keep encrypted failure diagnostics only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: encrypted-diagnostics-${{ needs.preflight.outputs.version }}-${{ matrix.id }}
+          path: ${{ runner.temp }}/flatt-private-build-logs/*.enc.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   publish:
     needs: [preflight, build]
