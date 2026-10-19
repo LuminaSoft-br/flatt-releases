@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
+import { EventEmitter } from "node:events";
 import { parse } from "yaml";
 import { cleanBuildEnvironment, runPrivateCommand } from "../scripts/private-command.mjs";
 import {
@@ -28,6 +29,7 @@ test("fixture diagnostics retain current Electron console message text and origi
   await addFixtureDiagnostics(output);
   assert.equal(await readFile(join(output, "main.fixture.cjs"), "utf8"), "original fixture");
   let consoleListener;
+  let windowListener;
   let originalRequired = false;
   const messages = [];
   runInNewContext(await readFile(join(output, "main.cjs"), "utf8"), {
@@ -36,6 +38,11 @@ test("fixture diagnostics retain current Electron console message text and origi
         return {
           app: {
             on(_event, listener) {
+              if (_event === "browser-window-created") {
+                windowListener = listener;
+                return;
+              }
+              if (_event !== "web-contents-created") return;
               listener(
                 {},
                 {
@@ -55,6 +62,23 @@ test("fixture diagnostics retain current Electron console message text and origi
   consoleListener({ level: "error", message: "fixture renderer failure" });
   assert.equal(originalRequired, true);
   assert.match(messages.join("\n"), /fixture renderer failure/);
+  const w = new EventEmitter();
+  Object.assign(w, {
+    isDestroyed: () => false,
+    isFocused: () => true,
+    isVisible: () => true,
+    focus() {},
+    blur() {},
+    webContents: { isDestroyed: () => false, isFocused: () => true, sendInputEvent() {} },
+  });
+  windowListener({}, w);
+  w.focus();
+  w.webContents.sendInputEvent({ type: "mouseDown", x: 1, y: 2 });
+  w.emit("blur");
+  assert.match(messages.join("\n"), /fixture-native-input.*mouseDown 1 2/);
+  assert.match(messages.join("\n"), /fixture-window-request.*focus/);
+  w.isDestroyed = () => true;
+  assert.doesNotThrow(() => w.emit("blur"));
 });
 
 test("Linux graphical validation resolves Electron from a hoisted workspace", async (t) => {
