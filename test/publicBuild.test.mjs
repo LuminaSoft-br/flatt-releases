@@ -3,6 +3,7 @@ import { readFile, readdir, writeFile, mkdir, mkdtemp, rm, symlink } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { parse } from "yaml";
 import { cleanBuildEnvironment, runPrivateCommand } from "../scripts/private-command.mjs";
 import {
@@ -10,6 +11,7 @@ import {
   readSourceRelease,
   stageTargetArtifacts,
   resolveElectronExecutable,
+  addFixtureDiagnostics,
 } from "../scripts/desktop-build.mjs";
 import { fixture, version, sha } from "./releaseFixture.mjs";
 
@@ -17,6 +19,42 @@ test("source admission accepts immutable SHA only", () => {
   assert.equal(validateSourceSha(sha), sha);
   for (const input of ["main", "master", "a".repeat(39), "a".repeat(40) + "\n", "$(echo secret)"])
     assert.throws(() => validateSourceSha(input));
+});
+
+test("fixture diagnostics retain current Electron console message text and original entrypoint", async (t) => {
+  const output = await mkdtemp(join(tmpdir(), "flatt-fixture-console-"));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  await writeFile(join(output, "main.cjs"), "original fixture");
+  await addFixtureDiagnostics(output);
+  assert.equal(await readFile(join(output, "main.fixture.cjs"), "utf8"), "original fixture");
+  let consoleListener;
+  let originalRequired = false;
+  const messages = [];
+  runInNewContext(await readFile(join(output, "main.cjs"), "utf8"), {
+    require(name) {
+      if (name === "electron")
+        return {
+          app: {
+            on(_event, listener) {
+              listener(
+                {},
+                {
+                  on(event, callback) {
+                    if (event === "console-message") consoleListener = callback;
+                  },
+                },
+              );
+            },
+          },
+        };
+      assert.equal(name, "./main.fixture.cjs");
+      originalRequired = true;
+    },
+    console: { error: (...args) => messages.push(args.join(" ")) },
+  });
+  consoleListener({ level: "error", message: "fixture renderer failure" });
+  assert.equal(originalRequired, true);
+  assert.match(messages.join("\n"), /fixture renderer failure/);
 });
 
 test("Linux graphical validation resolves Electron from a hoisted workspace", async (t) => {
