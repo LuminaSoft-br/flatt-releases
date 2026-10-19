@@ -6,6 +6,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   writeFile,
 } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -32,6 +33,21 @@ export function validateSourceSha(value) {
 export function resolveElectronExecutable(source) {
   // 修复依据：源仓库采用 hoisted 布局，desktop/node_modules 不存在；使用 Electron 的公开入口解析真实可执行文件。
   return createRequire(join(source, "packages/desktop/package.json"))("electron");
+}
+
+export async function addFixtureDiagnostics(output) {
+  await rename(join(output, "main.cjs"), join(output, "main.fixture.cjs"));
+  await writeFile(
+    join(output, "main.cjs"),
+    `const { app } = require("electron");
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("console-message", (_event, details) => console.error("[renderer-console]", details));
+  contents.on("did-fail-load", (_event, code, description) => console.error("[renderer-load-failed]", code, description));
+  contents.on("render-process-gone", (_event, details) => console.error("[renderer-gone]", details));
+});
+require("./main.fixture.cjs");
+`,
+  );
 }
 
 export async function readSourceRelease(root, sourceSha, expectedVersion) {
@@ -190,6 +206,7 @@ async function main() {
     await runPrivateCommand("linux-harness-build", process.execPath, [harness, "prepare", output], {
       cwd: source,
     });
+    await addFixtureDiagnostics(output);
     await runPrivateCommand(
       "linux-electron-regression",
       process.execPath,
