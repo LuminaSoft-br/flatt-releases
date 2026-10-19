@@ -40,5 +40,6 @@ The workflow uses the same publication concurrency group as the existing public 
 
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.
 - Subprocess tests inject secrets, source text and workflow commands into both streams and exceptions; none reaches the public log on success or failure. High-volume output is drained without accumulating it.
+- Linux graphical validation resolves the Electron executable through its public npm entrypoint from the desktop package. The source workspace uses `node-linker=hoisted`; a hardcoded `packages/desktop/node_modules/electron` path is invalid. A resolver test must cover the hoisted layout without relaxing graphical assertions.
 - Admission tests reject mutable refs, mismatched versions, unsafe notes, unsupported targets and symlink/extra-file artifacts. Existing inventory/publisher tests continue to verify hashes, all five targets, native filenames and draft recovery.
 - Live preparation records the source SHA, run URL and draft URL. Build/package success does not claim native installation, a Gentoo incident reproduction, or a signed macOS upgrade.

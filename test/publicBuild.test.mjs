@@ -9,6 +9,7 @@ import {
   validateSourceSha,
   readSourceRelease,
   stageTargetArtifacts,
+  resolveElectronExecutable,
 } from "../scripts/desktop-build.mjs";
 import { fixture, version, sha } from "./releaseFixture.mjs";
 
@@ -16,6 +17,19 @@ test("source admission accepts immutable SHA only", () => {
   assert.equal(validateSourceSha(sha), sha);
   for (const input of ["main", "master", "a".repeat(39), "a".repeat(40) + "\n", "$(echo secret)"])
     assert.throws(() => validateSourceSha(input));
+});
+
+test("Linux graphical validation resolves Electron from a hoisted workspace", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "flatt-hoisted-electron-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "packages/desktop"), { recursive: true });
+  await writeFile(join(root, "packages/desktop/package.json"), '{"name":"desktop"}');
+  await mkdir(join(root, "node_modules/electron"), { recursive: true });
+  await writeFile(
+    join(root, "node_modules/electron/index.js"),
+    'module.exports = "/fixture/electron";',
+  );
+  assert.equal(resolveElectronExecutable(root), "/fixture/electron");
 });
 
 test("private subprocesses have no tokens or Actions control files", () => {

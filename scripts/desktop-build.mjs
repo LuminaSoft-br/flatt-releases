@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createTargetProvenance } from "./aggregate-release.mjs";
@@ -26,6 +27,11 @@ export function validateSourceSha(value) {
   if (typeof value !== "string" || value.length !== 40 || !/^[a-f0-9]{40}$/.test(value))
     throw new Error("Expected immutable full source SHA");
   return value;
+}
+
+export function resolveElectronExecutable(source) {
+  // 修复依据：源仓库采用 hoisted 布局，desktop/node_modules 不存在；使用 Electron 的公开入口解析真实可执行文件。
+  return createRequire(join(source, "packages/desktop/package.json"))("electron");
 }
 
 export async function readSourceRelease(root, sourceSha, expectedVersion) {
@@ -187,12 +193,7 @@ async function main() {
     await runPrivateCommand(
       "linux-electron-regression",
       process.execPath,
-      [
-        harness,
-        "run",
-        output,
-        join(source, "packages/desktop/node_modules/electron/dist/electron"),
-      ],
+      [harness, "run", output, resolveElectronExecutable(source)],
       { cwd: source },
     );
     return;
