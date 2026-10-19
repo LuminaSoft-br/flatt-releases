@@ -121,7 +121,7 @@ jobs:
           show-progress: false
       - name: Linux packaging prerequisites
         if: startsWith(matrix.id, 'linux-')
-        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools libx11-dev libxtst-dev libxkbfile-dev
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools libx11-dev libxtst-dev libxkbfile-dev openbox x11-utils
       - name: Download pinned Windows native runtime privately
         if: matrix.id == 'windows-x64'
         env:
@@ -138,6 +138,8 @@ jobs:
         run: node scripts/desktop-build.mjs verify
       - name: Linux Electron responsiveness regression
         if: matrix.id == 'linux-x64'
+        env:
+          FLATT_E2E_WINDOW_MANAGER: openbox
         run: node scripts/desktop-build.mjs linux-regression
       - name: Package and audit native installers privately
         run: node scripts/desktop-build.mjs package
