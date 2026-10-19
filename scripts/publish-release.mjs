@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -74,8 +74,11 @@ export async function publishRelease({
   publish = false,
   check = false,
   requireInventory = false,
+  replaceDraftSourceSha,
   run = gh,
 }) {
+  if (replaceDraftSourceSha && (!requireInventory || !/^[a-f0-9]{40}$/.test(replaceDraftSourceSha)))
+    throw new Error("Draft replacement requires an exact source SHA and complete inventory");
   const plan = await validateReleaseArtifacts(directory, version);
   if (requireInventory && !plan.inventory)
     throw new Error("Complete five-target release inventory is required");
@@ -84,13 +87,46 @@ export async function publishRelease({
   const existing = JSON.parse(
     await run(["api", `repos/${repository}/releases`, "--paginate", "--slurp"]),
   ).flat();
-  const prior = existing.find((release) => release.tag_name === plan.tag);
+  let prior = existing.find((release) => release.tag_name === plan.tag);
   if (prior && !prior.draft) {
     throw new Error(
       `Release ${plan.tag} already exists; published assets must never be overwritten`,
     );
   }
   assertReleaseIsNewer(existing, version);
+  if (prior && replaceDraftSourceSha) {
+    const inspection = await mkdtemp(join(tmpdir(), "flatt-old-draft-"));
+    try {
+      await run([
+        "release",
+        "download",
+        plan.tag,
+        "--repo",
+        repository,
+        "--dir",
+        inspection,
+        "--pattern",
+        "release-inventory.json",
+      ]);
+      const inventory = JSON.parse(
+        await readFile(join(inspection, "release-inventory.json"), "utf8"),
+      );
+      if (
+        inventory.schemaVersion !== 1 ||
+        inventory.version !== version ||
+        inventory.sourceSha !== replaceDraftSourceSha
+      )
+        throw new Error("Draft replacement source does not match authorized inventory");
+      const current = JSON.parse(await run(["api", `repos/${repository}/releases/${prior.id}`]));
+      if (!current.draft || current.id !== prior.id || current.tag_name !== plan.tag)
+        throw new Error("Draft state changed; replacement stopped");
+      // 仅在完整新产物已验证且旧 source 明确授权后删除未发布 draft，绝不覆盖已发布版本。
+      await run(["api", "--method", "DELETE", `repos/${repository}/releases/${prior.id}`]);
+      prior = undefined;
+    } finally {
+      await rm(inspection, { recursive: true, force: true });
+    }
+  }
   const args = [
     "release",
     "create",
@@ -172,7 +208,7 @@ async function main() {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
   if (args.includes("--help")) {
     console.log(
-      "Usage: pnpm release:desktop --dir <artifacts> --version <X.Y.Z[-beta.N]> --notes <file> [--publish | --check] [--require-inventory]",
+      "Usage: pnpm release:desktop --dir <artifacts> --version <X.Y.Z[-beta.N]> --notes <file> [--publish | --check] [--require-inventory] [--replace-draft-source-sha <old-sha>]",
     );
     return;
   }
@@ -182,11 +218,12 @@ async function main() {
     if (arg === "--publish" || arg === "--check") options[arg.slice(2)] = true;
     else if (arg === "--require-inventory") options.requireInventory = true;
     else if (
-      ["--dir", "--version", "--notes"].includes(arg) &&
+      ["--dir", "--version", "--notes", "--replace-draft-source-sha"].includes(arg) &&
       args[index + 1] &&
       !args[index + 1].startsWith("--")
     )
-      options[arg.slice(2)] = args[++index];
+      options[arg === "--replace-draft-source-sha" ? "replaceDraftSourceSha" : arg.slice(2)] =
+        args[++index];
     else throw new Error(`Invalid argument: ${arg}`);
   }
   if (

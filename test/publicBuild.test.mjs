@@ -192,7 +192,10 @@ test("public workflow uses five native runners, isolated credentials and staged 
       assert.ok(!step.uses?.startsWith("actions/cache@"));
       assert.equal(step.with?.cache, undefined);
       if (step.uses?.startsWith("actions/upload-artifact@")) {
-        if (step.with.path !== "release-staged") {
+        if (step.with.path === "ota-evidence") {
+          assert.equal(step.if, "matrix.id == 'windows-x64'");
+          assert.match(step.with.name, /^ota-validation-/);
+        } else if (step.with.path !== "release-staged") {
           assert.equal(step.if, "failure()");
           assert.match(step.with.name, /^encrypted-diagnostics-/);
           assert.equal(step.with.path, "${{ runner.temp }}/flatt-private-build-logs/*.enc.json");
@@ -202,6 +205,15 @@ test("public workflow uses five native runners, isolated credentials and staged 
     }
   }
   assert.equal(w.jobs.publish.permissions.contents, "write");
+  const installedGate = w.jobs.build.steps.findIndex(
+    (s) => s.run === "node scripts/desktop-build.mjs installed-ota",
+  );
+  assert.ok(installedGate > 0);
+  assert.equal(w.jobs.build.steps[installedGate].if, "matrix.id == 'windows-x64'");
+  assert.ok(
+    installedGate <
+      w.jobs.build.steps.findIndex((s) => s.run === "node scripts/desktop-build.mjs stage"),
+  );
   assert.match(raw, /--require-inventory/);
   assert.doesNotMatch(raw, /secrets: inherit/);
 });

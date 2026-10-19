@@ -12,6 +12,20 @@ Releases completas incluem `release-inventory.json` com versão, SHA de origem, 
 
 macOS é compilado sem assinatura/notarização no fluxo atual; as notas públicas informam essa limitação e a ausência de validação de atualizações automáticas nesses builds.
 
+O Windows também constrói um instalador real de validação com versão inferior e
+executa instalação, descoberta, interrupção/repetição do download, ready, reinício
+explícito e retenção de configurações/dados antes de admitir a release. Esse
+instalador de validação nunca é publicado; o artifact `ota-validation-*` contém
+somente um JSON com versões e resultados sanitizados. Os detalhes de falha seguem
+o diagnóstico criptografado. A antiga 0.0.1 foi distribuída com o updater desativado
+e exige uma primeira instalação manual de uma versão que habilite OTA.
+
+Para reconstruir um candidato da mesma versão, informe `replace_draft_source_sha`
+com o SHA exato do inventário do rascunho anterior. O rascunho antigo permanece
+intacto durante os builds e testes. Depois que todos passarem, o publicador confere
+novamente seu estado e inventário antes de substituí-lo pelos novos arquivos.
+Releases já publicadas continuam imutáveis.
+
 Os checkouts privados são temporários e não persistem a credencial. O log público mostra somente o estágio e seu resultado, nunca a saída bruta de instalação, compilação ou testes. Isso evita publicar trechos de fonte em erros de compilação. Em falhas, os últimos 2 MiB da saída são criptografados em memória com AES-256-GCM; a chave aleatória é protegida por RSA-OAEP/SHA-256 para a chave pública em `resources/build-diagnostics-public.pem`. A chave privada correspondente fica somente com o mantenedor, fora do Git e do runner. Artifacts `encrypted-diagnostics-*` contêm apenas envelopes cifrados, expiram em sete dias e não entram na release. Comandos bem-sucedidos não deixam esse artifact. Não existe fallback de log em texto puro. Para trocar o destinatário, gere outro par localmente, mantenha a chave privada fora do Git e atualize somente a chave pública; diagnósticos anteriores continuam exigindo a chave privada anterior.
 
 Não são enviados caches de dependências, checkouts, logs brutos ou arquivos de fonte. Somente uma pasta nova com o allowlist validado de instaladores, blockmaps, manifests e proveniência é enviada como artifact de instaladores.

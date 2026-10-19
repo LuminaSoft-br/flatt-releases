@@ -11,6 +11,10 @@ on:
         description: Publish after complete verification (false prepares a draft)
         type: boolean
         default: false
+      replace_draft_source_sha:
+        description: Exact old inventory source SHA to replace an unpublished candidate after all gates
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -40,6 +44,7 @@ jobs:
       - name: Validate pinned input and source credential presence
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          REPLACE_DRAFT_SOURCE_SHA: ${{ inputs.replace_draft_source_sha }}
           FLATT_SOURCE_READ_TOKEN: ${{ secrets.FLATT_SOURCE_READ_TOKEN }}
         run: node scripts/desktop-build.mjs validate-input
       - name: Read private source at approved SHA
@@ -56,6 +61,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           GH_TOKEN: ${{ github.token }}
+          REPLACE_DRAFT_SOURCE_SHA: ${{ inputs.replace_draft_source_sha }}
         run: node scripts/desktop-build.mjs preflight
       - name: Keep public release notes
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -135,6 +141,17 @@ jobs:
         run: node scripts/desktop-build.mjs linux-regression
       - name: Package and audit native installers privately
         run: node scripts/desktop-build.mjs package
+      - name: Validate installed Windows OTA between two real installers privately
+        if: matrix.id == 'windows-x64'
+        run: node scripts/desktop-build.mjs installed-ota
+      - name: Keep sanitized installed OTA evidence
+        if: matrix.id == 'windows-x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ota-validation-${{ needs.preflight.outputs.version }}
+          path: ota-evidence
+          retention-days: 7
+          if-no-files-found: error
       - name: Validate and stage installer allowlist
         run: node scripts/desktop-build.mjs stage
       - name: Upload only validated installers and provenance
@@ -166,6 +183,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
       SOURCE_SHA: ${{ needs.preflight.outputs.sha }}
       PUBLISH: ${{ inputs.publish }}
+      REPLACE_DRAFT_SOURCE_SHA: ${{ inputs.replace_draft_source_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -193,6 +211,7 @@ jobs:
         run: |
           args=(--dir release-output --version "$RELEASE_VERSION" --notes public-notes/release-notes.md --require-inventory)
           if [[ "$PUBLISH" == "true" ]]; then args+=(--publish); fi
+          if [[ -n "$REPLACE_DRAFT_SOURCE_SHA" ]]; then args+=(--replace-draft-source-sha "$REPLACE_DRAFT_SOURCE_SHA"); fi
           node scripts/publish-release.mjs "${args[@]}"
       - name: Record prepared release
         if: success()
