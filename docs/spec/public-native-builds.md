@@ -12,9 +12,13 @@ Use standard runners for Windows x64, Linux x64/ARM64 and macOS Intel/ARM64. All
 
 Public workflow logs contain only fixed build-stage status and public release metadata. Private command stdout/stderr are never printed, including on failure. CI retains at most the last 2 MiB in a bounded diagnostic buffer; failed commands emit only an AES-256-GCM encrypted envelope, with its random key wrapped using RSA-OAEP/SHA-256 to the maintainer's checked-in public key. The private key stays on the maintainer machine outside both repositories. Successful commands produce no diagnostic artifact. Failure artifacts contain only encrypted envelopes, use a distinct artifact prefix, expire after seven days and are excluded from release aggregation/publication. No plaintext log is written to disk or uploaded. The synthetic graphical fixture forwards renderer console/load/termination diagnostics into this encrypted stream without changing assertions or deadlines.
 
-There is no source/dependency cache, raw build-log artifact, source archive or source map upload. The artifact admission owner copies only files validated by the existing per-target manifest/provenance allowlist into a fresh staging directory. Installer upload targets only that directory, never the source checkout or raw dist folder. Symlinks and unexpected filenames fail before upload. GitHub's automatic source archives refer to this public distribution repository, not `flatt-app`.
+There is no source/dependency cache, raw build-log artifact, source archive or source map upload. The artifact admission owner copies only files validated by the per-target manifest/provenance and remote-runtime allowlists into a fresh staging directory. Installer/runtime upload targets only that directory, never the source checkout or raw dist folder. Symlinks and unexpected filenames fail before upload. GitHub's automatic source archives refer to this public distribution repository, not `flatt-app`.
 
 ## Event order and recovery
+
+The Linux x64 job also owns preparing the four remote runtime platforms from the same pinned source SHA, using the existing private source producer. Validated manifests and flat SHA-256-addressed runtime archives are included in that target's provenance and the final release inventory. New aggregation/publication requires this complete remote set; the workflow cannot publish installers that point at absent remote manifests. Historical installer-only inventories remain verifiable. Runtime files use the same immutable `v<appVersion>` GitHub release as the installers, preserving the source-side custom CDN override contract. `scripts/remote-release-assets.mjs` is byte-identical to the private source validator and is checked during preflight. No published version is overwritten to retrofit these assets.
+
+Source verification runs before application compilation. The source TypeScript checker owns only its checking artifacts; the desktop bundler owns executable `out/` files. The Linux x64 verification stage must never overwrite a compiled Host before packaging with `--skip-build`. Source-side bundle admission must reject unresolved private workspace imports before producing installers. The graphical responsiveness fixture is separate from full application/Host startup and cannot replace that admission check.
 
 ```mermaid
 sequenceDiagram
@@ -27,7 +31,8 @@ sequenceDiagram
     W->>S: Read pinned checkout with read-only secret
     W->>W: Validate version, public notes and existing releases
     W->>B: Admit the same SHA/version
-    B->>B: Build privately; validate and stage installer allowlist
+    B->>B: Verify source, compile executable bundles, admit package inputs
+    B->>B: Package privately; validate and stage installer allowlist
     opt Command failure
         B->>B: Encrypt bounded diagnostic tail to maintainer public key
         B-->>W: Ciphertext-only failure artifact
@@ -90,6 +95,7 @@ workload, forced-blur assertion, deadline and heartbeat thresholds unchanged.
 Linux native prerequisites install Openbox and x11-utils before the launcher.
 
 - Parsed workflow tests enforce manual-only admission, five standard native targets, pinned source checkout, read-only default permissions, no persisted credentials or broad caches, isolated tokens, exact staged uploads and complete publication dependencies.
+- Verification precedes compilation, compilation precedes packaging, and packaging precedes staging. The source regression suite includes desktop typecheck isolation and unresolved workspace import admission.
 - Subprocess tests inject secrets, source text and workflow commands into both streams and exceptions; none reaches the public log on success or failure. High-volume output is drained without accumulating it.
 - Encrypted diagnostics tests cover authenticated roundtrip, tamper/wrong-recipient rejection, bounded tail capture and absence of plaintext in the uploaded envelope. The private key must never be committed, uploaded or printed.
 - Linux graphical validation resolves the Electron executable through its public npm entrypoint from the desktop package. The source workspace uses `node-linker=hoisted`; a hardcoded `packages/desktop/node_modules/electron` path is invalid. A resolver test must cover the hoisted layout without relaxing graphical assertions.

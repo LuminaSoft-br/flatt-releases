@@ -24,6 +24,7 @@ import {
 } from "./release-artifacts.mjs";
 import { runPrivateCommand } from "./private-command.mjs";
 import { runInstalledOtaValidation } from "./installed-ota.mjs";
+import { validateRemoteReleaseAssets } from "./remote-release-assets.mjs";
 
 export function validateSourceSha(value) {
   if (typeof value !== "string" || value.length !== 40 || !/^[a-f0-9]{40}$/.test(value))
@@ -117,11 +118,13 @@ export async function readSourceRelease(root, sourceSha, expectedVersion) {
 export async function stageTargetArtifacts(directory, output, target, version, sourceSha) {
   const provenance = await createTargetProvenance(directory, target, version, sourceSha);
   const spec = targetFiles(target, version);
+  const remoteFiles =
+    target === "linux-x64" ? await validateRemoteReleaseAssets(directory, version) : [];
   const files = await verifyFileList(
     directory,
     provenance.files,
-    new Set([...spec.required, ...spec.optional]),
-    spec.required,
+    new Set([...spec.required, ...spec.optional, ...remoteFiles]),
+    [...spec.required, ...remoteFiles],
   );
   await mkdir(output, { recursive: false });
   for (const file of files.values()) await copyFile(file.path, join(output, file.name));
@@ -132,13 +135,27 @@ export async function stageTargetArtifacts(directory, output, target, version, s
   await verifyFileList(
     output,
     provenance.files,
-    new Set([...spec.required, ...spec.optional]),
-    spec.required,
+    new Set([...spec.required, ...spec.optional, ...remoteFiles]),
+    [...spec.required, ...remoteFiles],
   );
   if ((await readdir(output)).length !== files.size + 1) throw new Error("Unexpected staged asset");
 }
 
+export async function verifySourceReleaseValidators(source) {
+  for (const name of [
+    "release-artifacts.mjs",
+    "aggregate-release.mjs",
+    "remote-release-assets.mjs",
+  ]) {
+    const expected = await readFile(new URL(`./${name}`, import.meta.url));
+    const actual = await readFile(join(source, "packages/desktop/scripts", name));
+    if (!expected.equals(actual))
+      throw new Error("Source/public release validators must match before native builds");
+  }
+}
+
 async function prepareMetadata(source, sourceSha) {
+  await verifySourceReleaseValidators(source);
   const release = await readSourceRelease(source, sourceSha);
   const response = await fetch(
     "https://api.github.com/repos/LuminaSoft-br/flatt-releases/releases?per_page=100",
@@ -225,6 +242,26 @@ async function main() {
       throw new Error("Installed OTA validation requires Windows x64");
     return runInstalledOtaValidation(source, version);
   }
+  if (stage === "remote-assets") {
+    if (target !== "linux-x64") throw new Error("Remote runtime preparation belongs to Linux x64");
+    await runPrivateCommand("remote-assets", "pnpm", ["prepare:remote-assets"], {
+      cwd: source,
+      extraEnv: { FLATT_NODE_DIST_MIRROR: "https://nodejs.org/dist" },
+    });
+    await runPrivateCommand(
+      "remote-assets-stage",
+      process.execPath,
+      [
+        join(source, "packages/desktop/scripts/remote-release-assets.mjs"),
+        "stage",
+        join(source, "packages/desktop/mock-cdn"),
+        join(source, "packages/desktop/dist-ci"),
+        version,
+      ],
+      { cwd: source },
+    );
+    return;
+  }
   if (stage === "verify") {
     for (const command of ["typecheck", "lint"])
       await runPrivateCommand(command, "pnpm", [command], { cwd: source });
@@ -245,6 +282,10 @@ async function main() {
         "packages/desktop/test/focusWindow.test.mjs",
         "packages/desktop/test/autoUpdaterEnablement.test.mjs",
         "packages/desktop/test/installedOtaNetwork.test.mjs",
+        "packages/desktop/test/desktopTypecheckIsolation.test.mjs",
+        "packages/desktop/test/desktopBundleAdmission.test.mjs",
+        "packages/desktop/test/remoteRelease.test.mjs",
+        "packages/desktop/test/remoteReleaseUrls.test.ts",
         "packages/desktop/test/githubReleaseProvider.test.ts",
         "packages/desktop/test/forceUpdateGuard.test.ts",
         "packages/shared/test/memoryDiagnosticsLimits.test.ts",
@@ -278,6 +319,10 @@ async function main() {
     return;
   }
   if (stage === "stage") {
+    if (target === "linux-x64")
+      await validateRemoteReleaseAssets(join(source, "packages/desktop/dist-ci"), version, {
+        required: true,
+      });
     await stageTargetArtifacts(
       join(source, "packages/desktop/dist-ci"),
       resolve("release-staged"),
