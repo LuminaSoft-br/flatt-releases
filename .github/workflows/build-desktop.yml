@@ -131,11 +131,16 @@ jobs:
         run: node scripts/desktop-build.mjs install
       - name: Prepare bundled runtime and Agent
         run: node scripts/desktop-build.mjs runtime
-      - name: Compile application privately
-        run: node scripts/desktop-build.mjs compile
+      # 类型检查可能写入源码项目输出；验证完成后才生成唯一可打包的可执行 bundle。
       - name: Verify source types, lint and hotfix regression tests on Linux
         if: matrix.id == 'linux-x64'
         run: node scripts/desktop-build.mjs verify
+      # remote 资产由现有 producer 生成；公开发布必须携带与安装包同 SHA 的完整运行时。
+      - name: Prepare and stage all remote runtime platforms privately
+        if: matrix.id == 'linux-x64'
+        run: node scripts/desktop-build.mjs remote-assets
+      - name: Compile application privately
+        run: node scripts/desktop-build.mjs compile
       - name: Linux Electron responsiveness regression
         if: matrix.id == 'linux-x64'
         env:
@@ -205,13 +210,13 @@ jobs:
           name: public-notes-${{ needs.preflight.outputs.version }}
           path: public-notes
       - name: Verify complete five-target inventory and merge manifests
-        run: node scripts/aggregate-release.mjs aggregate release-input release-output "$RELEASE_VERSION" "$SOURCE_SHA" --link-files
+        run: node scripts/aggregate-release.mjs aggregate release-input release-output "$RELEASE_VERSION" "$SOURCE_SHA" --link-files --require-remote
       - name: Upload draft and redownload every asset for verification
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          args=(--dir release-output --version "$RELEASE_VERSION" --notes public-notes/release-notes.md --require-inventory)
+          args=(--dir release-output --version "$RELEASE_VERSION" --notes public-notes/release-notes.md --require-inventory --require-remote-assets)
           if [[ "$PUBLISH" == "true" ]]; then args+=(--publish); fi
           if [[ -n "$REPLACE_DRAFT_SOURCE_SHA" ]]; then args+=(--replace-draft-source-sha "$REPLACE_DRAFT_SOURCE_SHA"); fi
           node scripts/publish-release.mjs "${args[@]}"

@@ -13,6 +13,7 @@ import {
   stageTargetArtifacts,
   resolveElectronExecutable,
   addFixtureDiagnostics,
+  verifySourceReleaseValidators,
 } from "../scripts/desktop-build.mjs";
 import { fixture, version, sha } from "./releaseFixture.mjs";
 
@@ -240,4 +241,54 @@ test("public workflow uses five native runners, isolated credentials and staged 
   );
   assert.match(raw, /--require-inventory/);
   assert.doesNotMatch(raw, /secrets: inherit/);
+});
+
+test("source verification runs before compiling executable bundles for packaging", async () => {
+  const workflow = parse(
+    await readFile(new URL("../.github/workflows/build-desktop.yml", import.meta.url), "utf8"),
+  );
+  const steps = workflow.jobs.build.steps;
+  const position = (stage) =>
+    steps.findIndex((step) => step.run === `node scripts/desktop-build.mjs ${stage}`);
+  for (const stage of ["verify", "compile", "package", "stage"])
+    assert.ok(position(stage) >= 0, `Missing ${stage} stage`);
+  assert.ok(position("verify") < position("compile"), "Typecheck must precede compilation");
+  assert.ok(position("compile") < position("package"));
+  assert.ok(position("package") < position("stage"));
+});
+
+test("new desktop releases prepare and require remote runtimes from the pinned source", async () => {
+  const raw = await readFile(
+    new URL("../.github/workflows/build-desktop.yml", import.meta.url),
+    "utf8",
+  );
+  const workflow = parse(raw);
+  const steps = workflow.jobs.build.steps;
+  const position = (stage) =>
+    steps.findIndex((step) => step.run === `node scripts/desktop-build.mjs ${stage}`);
+  assert.ok(position("remote-assets") > position("verify"));
+  assert.ok(position("remote-assets") < position("compile"));
+  assert.equal(steps[position("remote-assets")].if, "matrix.id == 'linux-x64'");
+  const commands = workflow.jobs.publish.steps.map((step) => step.run ?? "").join("\n");
+  assert.match(commands, /aggregate[^\n]+--require-remote/);
+  assert.match(commands, /--require-remote-assets/);
+});
+
+test("source preflight checks the shared remote runtime contract before building", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "flatt-validator-parity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = join(root, "packages/desktop/scripts");
+  await mkdir(directory, { recursive: true });
+  for (const name of [
+    "release-artifacts.mjs",
+    "aggregate-release.mjs",
+    "remote-release-assets.mjs",
+  ])
+    await writeFile(
+      join(directory, name),
+      await readFile(new URL(`../scripts/${name}`, import.meta.url)),
+    );
+  await verifySourceReleaseValidators(root);
+  await writeFile(join(directory, "remote-release-assets.mjs"), "old contract");
+  await assert.rejects(verifySourceReleaseValidators(root), /validators must match/);
 });

@@ -2,6 +2,7 @@ import { cp, link, mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse, stringify } from "yaml";
+import { validateRemoteReleaseAssets } from "./remote-release-assets.mjs";
 import {
   checkedFile,
   releaseTargets,
@@ -24,7 +25,9 @@ export async function createTargetProvenance(directory, target, version, sourceS
   checkSource(sourceSha);
   const { required, optional, manifest } = targetFiles(target, version);
   const names = await readdir(directory);
-  const selected = [...required, ...optional.filter((n) => names.includes(n))];
+  const remoteFiles =
+    target === "linux-x64" ? await validateRemoteReleaseAssets(directory, version) : [];
+  const selected = [...required, ...optional.filter((n) => names.includes(n)), ...remoteFiles];
   await validateReleaseArtifacts(directory, version);
   validateManifestTargetCoverage(
     parse(await readFile(join(directory, manifest), "utf8")),
@@ -48,7 +51,7 @@ export async function aggregateRelease(
   output,
   version,
   sourceSha,
-  { linkFiles = false } = {},
+  { linkFiles = false, requireRemote = false } = {},
 ) {
   releaseVersion(version);
   checkSource(sourceSha);
@@ -68,11 +71,15 @@ export async function aggregateRelease(
     )
       throw new Error("Invalid, duplicate or mismatched target provenance");
     const spec = targetFiles(provenance.target, version);
+    const remoteFiles =
+      provenance.target === "linux-x64"
+        ? await validateRemoteReleaseAssets(dir, version, { required: requireRemote })
+        : [];
     const files = await verifyFileList(
       dir,
       provenance.files,
-      new Set([...spec.required, ...spec.optional]),
-      spec.required,
+      new Set([...spec.required, ...spec.optional, ...remoteFiles]),
+      [...spec.required, ...remoteFiles],
     );
     const names = await readdir(dir);
     if (names.some((n) => n !== "release-provenance.json" && !files.has(n)))
@@ -114,13 +121,15 @@ export async function aggregateRelease(
 }
 
 async function main() {
-  const [command, directory, arg, version, sourceSha, mode] = process.argv.slice(2);
-  if (mode && mode !== "--link-files") throw new Error("Invalid aggregation mode");
+  const [command, directory, arg, version, sourceSha, ...modes] = process.argv.slice(2);
+  if (modes.some((mode) => !["--link-files", "--require-remote"].includes(mode)))
+    throw new Error("Invalid aggregation mode");
   if (command === "provenance" && sourceSha)
     await createTargetProvenance(resolve(directory), arg, version, sourceSha);
   else if (command === "aggregate" && sourceSha)
     await aggregateRelease(resolve(directory), resolve(arg), version, sourceSha, {
-      linkFiles: mode === "--link-files",
+      linkFiles: modes.includes("--link-files"),
+      requireRemote: modes.includes("--require-remote"),
     });
   else
     throw new Error(

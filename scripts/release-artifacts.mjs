@@ -3,6 +3,7 @@ import { open, readFile, readdir, lstat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import semver from "semver";
 import { parse } from "yaml";
+import { validateRemoteReleaseAssets } from "./remote-release-assets.mjs";
 
 export const releaseTargets = ["windows-x64", "linux-x64", "linux-arm64", "mac-x64", "mac-arm64"];
 
@@ -169,7 +170,11 @@ export async function validateReleaseArtifacts(directory, version) {
       )
     )
       throw new Error("Incomplete or mismatched release targets");
-    const required = [...new Set(releaseTargets.flatMap((t) => targetFiles(t, version).required))];
+    const remoteFiles = await validateRemoteReleaseAssets(directory, version);
+    const required = [
+      ...new Set(releaseTargets.flatMap((t) => targetFiles(t, version).required)),
+      ...remoteFiles,
+    ];
     const allowed = new Set([
       ...required,
       ...releaseTargets.flatMap((t) => targetFiles(t, version).optional),

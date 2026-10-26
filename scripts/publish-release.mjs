@@ -8,6 +8,7 @@ import {
   fileSha512,
   validateReleaseArtifacts,
 } from "./release-artifacts.mjs";
+import { validateRemoteReleaseAssets } from "./remote-release-assets.mjs";
 
 const repository = "LuminaSoft-br/flatt-releases";
 
@@ -74,12 +75,15 @@ export async function publishRelease({
   publish = false,
   check = false,
   requireInventory = false,
+  requireRemoteAssets = false,
   replaceDraftSourceSha,
   run = gh,
 }) {
   if (replaceDraftSourceSha && (!requireInventory || !/^[a-f0-9]{40}$/.test(replaceDraftSourceSha)))
     throw new Error("Draft replacement requires an exact source SHA and complete inventory");
   const plan = await validateReleaseArtifacts(directory, version);
+  if (requireRemoteAssets)
+    await validateRemoteReleaseAssets(directory, version, { required: true });
   if (requireInventory && !plan.inventory)
     throw new Error("Complete five-target release inventory is required");
   console.log(`[release] validated ${plan.files.length} assets for ${plan.tag}`);
@@ -208,7 +212,7 @@ async function main() {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
   if (args.includes("--help")) {
     console.log(
-      "Usage: pnpm release:desktop --dir <artifacts> --version <X.Y.Z[-beta.N]> --notes <file> [--publish | --check] [--require-inventory] [--replace-draft-source-sha <old-sha>]",
+      "Usage: pnpm release:desktop --dir <artifacts> --version <X.Y.Z[-beta.N]> --notes <file> [--publish | --check] [--require-inventory] [--require-remote-assets] [--replace-draft-source-sha <old-sha>]",
     );
     return;
   }
@@ -217,6 +221,7 @@ async function main() {
     const arg = args[index];
     if (arg === "--publish" || arg === "--check") options[arg.slice(2)] = true;
     else if (arg === "--require-inventory") options.requireInventory = true;
+    else if (arg === "--require-remote-assets") options.requireRemoteAssets = true;
     else if (
       ["--dir", "--version", "--notes", "--replace-draft-source-sha"].includes(arg) &&
       args[index + 1] &&
